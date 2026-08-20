@@ -43,16 +43,43 @@ def _needs_romanization(words: List[str]) -> bool:
     return any(not _LATIN_RE.match(w) for w in words)
 
 
+_UROMANIZER = None
+
+
+def _get_uromanizer():
+    """uroman's python API has shifted across versions; try the known
+    entry points instead of hard-coding one and breaking on a pip bump."""
+    global _UROMANIZER
+    if _UROMANIZER is not None:
+        return _UROMANIZER
+
+    import uroman
+
+    if hasattr(uroman, "Uroman"):
+        inst = uroman.Uroman()
+        if hasattr(inst, "romanize_string"):
+            _UROMANIZER = lambda s: inst.romanize_string(s)
+        elif hasattr(inst, "romanize"):
+            _UROMANIZER = lambda s: inst.romanize(s)
+        else:
+            raise RuntimeError("uroman.Uroman instance has no romanize method")
+    elif hasattr(uroman, "romanize_string"):
+        _UROMANIZER = lambda s: uroman.romanize_string(s)
+    else:
+        raise RuntimeError(
+            "Unrecognized uroman API — check `python -c 'import uroman; print(dir(uroman))'`"
+        )
+    return _UROMANIZER
+
+
 def _romanize(words: List[str]) -> List[str]:
     """Romanize non-Latin script words (Devanagari etc.) via uroman so the
     MMS CTC model's shared-alphabet dictionary can align them."""
-    import uroman
-
-    ur = uroman.Uroman()
+    romanize_fn = _get_uromanizer()
     romanized = []
     for w in words:
-        rw = ur.romanize_string(w)
-        rw = unicodedata.normalize("NFKD", rw)
+        rw = romanize_fn(w)
+        rw = unicodedata.normalize("NFKD", str(rw))
         rw = re.sub(r"[^a-zA-Z0-9']", "", rw).lower()
         romanized.append(rw if rw else "x")
     return romanized
@@ -155,3 +182,4 @@ if __name__ == "__main__":
     words = align_segments(audio, result.segments, cfg.get("alignment", {}).get("segment_padding_sec", 0.35))
     for w in words[:15]:
         print(f"{w.word:15s} {w.start:7.3f} - {w.end:7.3f}  conf={w.confidence:.2f}")
+        
