@@ -11,6 +11,12 @@ on:
         description: "faster-whisper model"
         required: false
         default: "large-v3"
+        type: choice
+        options:
+          - large-v3
+          - medium
+          - small
+          - distil-large-v3
       language:
         description: "language code, or 'auto'"
         required: false
@@ -19,6 +25,11 @@ on:
         description: "asr | transcript | srt"
         required: false
         default: "asr"
+        type: choice
+        options:
+          - asr
+          - transcript
+          - srt
   push:
     paths:
       - "input/**"
@@ -42,6 +53,8 @@ jobs:
         with:
           path: ~/.cache/pip
           key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
 
       - name: Cache model weights (faster-whisper + MMS)
         uses: actions/cache@v4
@@ -50,6 +63,9 @@ jobs:
             ~/.cache/huggingface
             ~/.cache/torch
           key: models-${{ github.event.inputs.model || 'large-v3' }}-${{ runner.os }}
+          restore-keys: |
+            models-${{ github.event.inputs.model || 'large-v3' }}-
+            models-
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
@@ -73,7 +89,7 @@ jobs:
 
       - name: Patch config (model/language from workflow inputs)
         run: |
-          python - <<'EOF'
+          python - <<'PYEOF'
           import yaml
           with open("config.yaml") as f:
               cfg = yaml.safe_load(f)
@@ -81,7 +97,7 @@ jobs:
           cfg["language"] = "${{ github.event.inputs.language }}" or cfg["language"]
           with open("config.yaml", "w") as f:
               yaml.safe_dump(cfg, f)
-          EOF
+          PYEOF
 
       - name: Run pipeline
         run: |
@@ -106,4 +122,3 @@ jobs:
             output/subtitle.ass
             output/karaoke.ass
           retention-days: 14
-          
