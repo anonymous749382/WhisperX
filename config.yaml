@@ -1,15 +1,15 @@
 # --- Transcription (faster-whisper) ---
-model: large-v3
-device: cpu
-compute_type: int8
-language: auto
+model: large-v3          # tiny/base/small/medium/large-v2/large-v3/distil-large-v3
+device: cpu              # cpu | cuda
+compute_type: int8       # int8 (fast on CPU) | int8_float16 | float16 (GPU)
+language: auto           # auto | en | hi | ...
 beam_size: 5
 vad_filter: true
 vad_min_silence_ms: 500
 
 # --- Forced alignment (torchaudio MMS) ---
 alignment:
-  segment_padding_sec: 0.35
+  segment_padding_sec: 0.35   # audio padding around each ASR segment before aligning
   sample_rate: 16000
 
 # --- Subtitle segmentation (SRT) ---
@@ -18,7 +18,7 @@ subtitle:
   max_lines: 2
   max_duration: 5.0
   min_duration: 0.8
-  max_gap_new_line_sec: 0.6
+  max_gap_new_line_sec: 0.6   # gap that forces a new subtitle cue
 
 # --- Validation thresholds ---
 validation:

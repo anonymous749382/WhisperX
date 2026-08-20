@@ -182,4 +182,3 @@ if __name__ == "__main__":
     words = align_segments(audio, result.segments, cfg.get("alignment", {}).get("segment_padding_sec", 0.35))
     for w in words[:15]:
         print(f"{w.word:15s} {w.start:7.3f} - {w.end:7.3f}  conf={w.confidence:.2f}")
-        
