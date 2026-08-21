@@ -68,7 +68,9 @@ jobs:
             models-
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
 
       - name: Locate input file
         id: locate
