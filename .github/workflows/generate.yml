@@ -118,6 +118,7 @@ jobs:
           name: subtitles-${{ github.run_number }}
           path: |
             output/output.json
+            output/transcript.txt
             output/output.srt
             output/subtitle.ass
             output/karaoke.ass
