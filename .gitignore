@@ -2,3 +2,4 @@ input/*
 !input/.gitkeep
 scripts/*.session
 scripts/*.session-journal
+scripts/tg_bot.py
