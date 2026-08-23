@@ -30,9 +30,33 @@ on:
           - asr
           - transcript
           - srt
+      job_id:
+        description: "TG bot se aata hai"
+        required: false
+        default: ""
+      release_tag:
+        description: "temp release tag jisme input asset hai (TG flow)"
+        required: false
+        default: ""
+      asset_id:
+        description: "release asset id (private-safe download ke liye)"
+        required: false
+        default: ""
+      tg_chat_id:
+        required: false
+        default: ""
+      tg_status_msg_id:
+        required: false
+        default: ""
+      tg_reply_to_msg_id:
+        required: false
+        default: ""
   push:
     paths:
       - "input/**"
+
+permissions:
+  contents: write
 
 jobs:
   generate:
@@ -70,20 +94,35 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt
+          pip install -r requirements.txt requests
+
+      - name: Notify - fetching input
+        if: github.event.inputs.tg_chat_id != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          python scripts/tg_notify.py edit "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "📥 Runner par input file fetch ho rahi hai…"
 
       - name: Locate input file
         id: locate
         run: |
-          if [ -n "${{ github.event.inputs.video_url }}" ]; then
-            mkdir -p input
+          mkdir -p input
+          if [ -n "${{ github.event.inputs.asset_id }}" ]; then
+            echo "Downloading temp release asset (private-safe)..."
+            curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                 -H "Accept: application/octet-stream" \
+                 "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ github.event.inputs.asset_id }}" \
+                 -o input/source_input
+            echo "path=input/source_input" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.video_url }}" ]; then
             echo "Downloading from URL..."
             curl -L "${{ github.event.inputs.video_url }}" -o input/source_input
             echo "path=input/source_input" >> "$GITHUB_OUTPUT"
           else
             f=$(find input -maxdepth 1 -type f ! -name '.gitkeep' | head -n 1)
             if [ -z "$f" ]; then
-              echo "No file found in input/ and no video_url provided." >&2
+              echo "No file found in input/ and no video_url/asset_id provided." >&2
               exit 1
             fi
             echo "path=$f" >> "$GITHUB_OUTPUT"
@@ -101,6 +140,14 @@ jobs:
               yaml.safe_dump(cfg, f)
           PYEOF
 
+      - name: Notify - transcribing
+        if: github.event.inputs.tg_chat_id != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          python scripts/tg_notify.py edit "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "🧠 Transcribing (model=${{ github.event.inputs.model }})…"
+
       - name: Run pipeline
         run: |
           set -e
@@ -114,6 +161,14 @@ jobs:
           fi
           python scripts/pipeline.py "$input_path" $extra --output-dir output
 
+      - name: Notify - packaging
+        if: github.event.inputs.tg_chat_id != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          python scripts/tg_notify.py edit "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "🎯 Packaging outputs…"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -121,7 +176,48 @@ jobs:
           path: |
             output/output.json
             output/transcript.txt
+            output/metadata.txt
             output/output.srt
             output/subtitle.ass
             output/karaoke.ass
           retention-days: 14
+
+      - name: Zip outputs for TG
+        if: github.event.inputs.tg_chat_id != ''
+        run: |
+          mkdir -p out out_pkg
+          cp output/subtitle.ass out_pkg/Sub.ass
+          cp output/output.srt out_pkg/Sub.srt
+          cp output/transcript.txt out_pkg/Transcript.txt
+          cp output/metadata.txt out_pkg/Metadata.txt
+          (cd out_pkg && zip "../out/${{ github.event.inputs.job_id }}.zip" Sub.ass Sub.srt Transcript.txt Metadata.txt)
+
+      - name: Send result to TG (reply to original file)
+        if: github.event.inputs.tg_chat_id != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          python scripts/tg_notify.py send "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_reply_to_msg_id }}" "out/${{ github.event.inputs.job_id }}.zip" \
+            "✅ Done — model=${{ github.event.inputs.model }}"
+
+      - name: Delete temp input release (input kabhi git me commit nahi hua)
+        if: always() && github.event.inputs.release_tag != ''
+        run: |
+          REL_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.release_tag }}")
+          REL_ID=$(python -c "import json,sys;print(json.loads('''$REL_JSON''')['id'])" 2>/dev/null || echo "")
+          if [ -n "$REL_ID" ]; then
+            curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$REL_ID"
+          fi
+          curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/${{ github.event.inputs.release_tag }}"
+
+      - name: Notify - failure
+        if: failure() && github.event.inputs.tg_chat_id != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          python scripts/tg_notify.py edit "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "❌ Job ${{ github.event.inputs.job_id }} fail ho gaya, Actions logs check karo."

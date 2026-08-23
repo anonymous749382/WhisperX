@@ -20,6 +20,10 @@ subtitle:
   min_duration: 0.8
   max_gap_new_line_sec: 0.6   # gap that forces a new subtitle cue
 
+# --- Paragraph transcript (transcript.txt) ---
+transcript:
+  paragraph_gap_sec: 1.5      # gap that forces a new paragraph in the story transcript
+
 # --- Validation thresholds ---
 validation:
   min_word_duration: 0.02

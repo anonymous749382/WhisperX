@@ -24,6 +24,8 @@ from validate import validate_words, print_report
 from generate_json import generate_json
 from generate_srt import generate_srt
 from generate_ass import generate_subtitle_ass, generate_karaoke_ass
+from generate_transcript import generate_transcript
+from generate_metadata import generate_metadata
 
 
 def parse_srt(path: str):
@@ -104,9 +106,14 @@ def run(args, cfg):
     generate_srt(words, cfg.get("subtitle", {}), str(out_dir / "output.srt"))
     generate_subtitle_ass(words, cfg.get("subtitle", {}), str(out_dir / "subtitle.ass"))
     generate_karaoke_ass(words, cfg.get("subtitle", {}), str(out_dir / "karaoke.ass"))
+    generate_transcript(
+        words, str(out_dir / "transcript.txt"),
+        cfg.get("transcript", {}).get("paragraph_gap_sec", 1.5),
+    )
+    generate_metadata(words, str(out_dir / "metadata.txt"))
 
     print(f"\nDone. Outputs in {out_dir}/")
-    print("  output.json  output.srt  subtitle.ass  karaoke.ass")
+    print("  output.json  output.srt  subtitle.ass  karaoke.ass  transcript.txt  metadata.txt")
 
 
 def main():
