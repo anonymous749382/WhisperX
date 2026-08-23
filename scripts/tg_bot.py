@@ -28,6 +28,7 @@ Run:
 """
 
 import os
+import time
 import uuid
 import requests
 from pyrogram import Client, filters
@@ -64,6 +65,16 @@ def is_allowed(user_id: int) -> bool:
         # allowlist khali hai -> abhi setup mode, sabko log karo par process mat karo
         return False
     return user_id in ALLOWED_USER_IDS
+
+
+def get_filename(msg) -> str:
+    if msg.document:
+        return msg.document.file_name or "file"
+    if msg.audio:
+        return msg.audio.file_name or "audio.mp3"
+    if msg.video:
+        return msg.video.file_name or "video.mp4"
+    return "file"
 
 
 def model_keyboard(job_id):
@@ -118,6 +129,8 @@ async def on_model_pick(client, cq):
         return await cq.answer("Job expire ho gaya, file dobara bhejo.", show_alert=True)
 
     await cq.answer()
+    start_epoch = time.time()
+    orig_filename = get_filename(src_message)
     status = await cq.message.edit_text(f"⬇️ Downloading… (model={model})")
 
     async def dl_progress(current, total):
@@ -170,6 +183,8 @@ async def on_model_pick(client, cq):
                 "tg_chat_id": str(src_message.chat.id),
                 "tg_status_msg_id": str(status.id),
                 "tg_reply_to_msg_id": str(src_message.id),
+                "orig_filename": orig_filename,
+                "start_epoch": str(start_epoch),
             },
         },
     )

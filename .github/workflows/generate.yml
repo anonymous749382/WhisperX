@@ -51,6 +51,14 @@ on:
       tg_reply_to_msg_id:
         required: false
         default: ""
+      orig_filename:
+        description: "original file name (TG flow, for progress card)"
+        required: false
+        default: "file"
+      start_epoch:
+        description: "unix timestamp jab job queue hua (elapsed timer ke liye)"
+        required: false
+        default: ""
   push:
     paths:
       - "input/**"
@@ -101,8 +109,11 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
-          python scripts/tg_notify.py edit "${{ github.event.inputs.tg_chat_id }}" \
-            "${{ github.event.inputs.tg_status_msg_id }}" "📥 Runner par input file fetch ho rahi hai…"
+          python scripts/tg_notify.py stage "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "${{ github.event.inputs.job_id }}" \
+            "${{ github.event.inputs.orig_filename }}" "${{ github.event.inputs.model }}" \
+            "${{ github.event.inputs.start_epoch }}" fetching \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Locate input file
         id: locate
@@ -145,8 +156,11 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
-          python scripts/tg_notify.py edit "${{ github.event.inputs.tg_chat_id }}" \
-            "${{ github.event.inputs.tg_status_msg_id }}" "🧠 Transcribing (model=${{ github.event.inputs.model }})…"
+          python scripts/tg_notify.py stage "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "${{ github.event.inputs.job_id }}" \
+            "${{ github.event.inputs.orig_filename }}" "${{ github.event.inputs.model }}" \
+            "${{ github.event.inputs.start_epoch }}" transcribing \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Run pipeline
         run: |
@@ -161,13 +175,16 @@ jobs:
           fi
           python scripts/pipeline.py "$input_path" $extra --output-dir output
 
-      - name: Notify - packaging
+      - name: Notify - aligning/packaging
         if: github.event.inputs.tg_chat_id != ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
-          python scripts/tg_notify.py edit "${{ github.event.inputs.tg_chat_id }}" \
-            "${{ github.event.inputs.tg_status_msg_id }}" "🎯 Packaging outputs…"
+          python scripts/tg_notify.py stage "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "${{ github.event.inputs.job_id }}" \
+            "${{ github.event.inputs.orig_filename }}" "${{ github.event.inputs.model }}" \
+            "${{ github.event.inputs.start_epoch }}" aligning \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -191,6 +208,17 @@ jobs:
           cp output/transcript.txt out_pkg/Transcript.txt
           cp output/metadata.txt out_pkg/Metadata.txt
           (cd out_pkg && zip "../out/${{ github.event.inputs.job_id }}.zip" Sub.ass Sub.srt Transcript.txt Metadata.txt)
+
+      - name: Notify - uploading result
+        if: github.event.inputs.tg_chat_id != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          python scripts/tg_notify.py stage "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "${{ github.event.inputs.job_id }}" \
+            "${{ github.event.inputs.orig_filename }}" "${{ github.event.inputs.model }}" \
+            "${{ github.event.inputs.start_epoch }}" done \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Send result to TG (reply to original file)
         if: github.event.inputs.tg_chat_id != ''
@@ -219,5 +247,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
-          python scripts/tg_notify.py edit "${{ github.event.inputs.tg_chat_id }}" \
-            "${{ github.event.inputs.tg_status_msg_id }}" "❌ Job ${{ github.event.inputs.job_id }} fail ho gaya, Actions logs check karo."
+          python scripts/tg_notify.py fail "${{ github.event.inputs.tg_chat_id }}" \
+            "${{ github.event.inputs.tg_status_msg_id }}" "${{ github.event.inputs.job_id }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
