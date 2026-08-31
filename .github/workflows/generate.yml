@@ -207,7 +207,14 @@ jobs:
           cp output/output.srt out_pkg/Sub.srt
           cp output/transcript.txt out_pkg/Transcript.txt
           cp output/metadata.txt out_pkg/Metadata.txt
-          (cd out_pkg && zip "../out/${{ github.event.inputs.job_id }}.zip" Sub.ass Sub.srt Transcript.txt Metadata.txt)
+
+          raw_name="${{ github.event.inputs.orig_filename }}"
+          base_name="${raw_name%.*}"
+          safe_name=$(echo "$base_name" | tr -cd '[:alnum:] _.-' | tr ' ' '_')
+          if [ -z "$safe_name" ]; then safe_name="${{ github.event.inputs.job_id }}"; fi
+          echo "ZIP_NAME=$safe_name" >> "$GITHUB_ENV"
+
+          (cd out_pkg && zip "../out/${safe_name}.zip" Sub.ass Sub.srt Transcript.txt Metadata.txt)
 
       - name: Notify - uploading result
         if: github.event.inputs.tg_chat_id != ''
@@ -226,7 +233,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           python scripts/tg_notify.py send "${{ github.event.inputs.tg_chat_id }}" \
-            "${{ github.event.inputs.tg_reply_to_msg_id }}" "out/${{ github.event.inputs.job_id }}.zip" \
+            "${{ github.event.inputs.tg_reply_to_msg_id }}" "out/${{ env.ZIP_NAME }}.zip" \
             "✅ Done — model=${{ github.event.inputs.model }}"
 
       - name: Delete temp input release (input kabhi git me commit nahi hua)
