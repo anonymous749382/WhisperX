@@ -42,6 +42,10 @@ on:
         description: "release asset id (private-safe download ke liye)"
         required: false
         default: ""
+      transcript_asset_id:
+        description: "forced-align mode: Hindi script (.txt) ka release asset id"
+        required: false
+        default: ""
       tg_chat_id:
         required: false
         default: ""
@@ -138,6 +142,14 @@ jobs:
             fi
             echo "path=$f" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Download transcript file (forced-align mode)
+        if: github.event.inputs.transcript_asset_id != ''
+        run: |
+          curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+               -H "Accept: application/octet-stream" \
+               "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ github.event.inputs.transcript_asset_id }}" \
+               -o input/transcript.txt
 
       - name: Patch config (model/language from workflow inputs)
         run: |
