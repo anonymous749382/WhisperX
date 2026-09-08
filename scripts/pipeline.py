@@ -4,7 +4,9 @@ Modes:
   1) video/audio only              -> ASR (faster-whisper) + MMS alignment
   2) video/audio + transcript.txt  -> reuse given text, re-segment onto ASR
                                        boundaries, then MMS alignment
-  3) video/audio + existing.srt    -> reuse given text+coarse timing as
+  3) video/audio + lines.txt       -> exact 1:1 line-to-segment mapping,
+                                       no merging/splitting, then MMS alignment
+  4) video/audio + existing.srt    -> reuse given text+coarse timing as
                                        segments directly, then MMS alignment
                                        (refines timestamps, keeps your text)
 """
@@ -18,7 +20,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent))
 
 from extract_audio import extract_audio, get_duration
-from transcribe import transcribe, segments_from_plain_text, Segment
+from transcribe import transcribe, segments_from_plain_text, segments_from_lines, Segment
 from align import align_segments
 from validate import validate_words, print_report
 from generate_json import generate_json
@@ -78,6 +80,13 @@ def run(args, cfg):
         segments = parse_srt(args.srt)
         if language == "auto":
             language = "unknown"
+    elif args.lines:
+        print("[2/5] Running ASR for rough timing anchors, preserving exact line structure...")
+        asr_result = transcribe(str(wav_path), cfg)
+        language = asr_result.language if language == "auto" else language
+        transcript_text = Path(args.lines).read_text(encoding="utf-8")
+        segments = segments_from_lines(transcript_text, asr_result.segments)
+        print(f"      {len(segments)} lines -> {len(segments)} segments (exact match guaranteed)")
     elif args.transcript:
         print("[2/5] Running ASR for segmentation, then remapping provided transcript text...")
         asr_result = transcribe(str(wav_path), cfg)
@@ -119,14 +128,16 @@ def run(args, cfg):
 def main():
     p = argparse.ArgumentParser(description="Word-level forced-alignment subtitle generator")
     p.add_argument("input", help="video or audio file")
-    p.add_argument("--transcript", help="existing transcript.txt to reuse (optional)")
+    p.add_argument("--transcript", help="existing transcript.txt to reuse (optional, fuzzy re-segmentation)")
+    p.add_argument("--lines", help="line-preserving mode: exact 1:1 segment-per-line output (recommended for pre-translated scripts)")
     p.add_argument("--srt", help="existing .srt to refine timing for (optional)")
     p.add_argument("--config", default=str(Path(__file__).parent.parent / "config.yaml"))
     p.add_argument("--output-dir", default="output")
     args = p.parse_args()
 
-    if args.transcript and args.srt:
-        p.error("--transcript and --srt are mutually exclusive")
+    modes = [bool(args.transcript), bool(args.lines), bool(args.srt)]
+    if sum(modes) > 1:
+        p.error("--transcript, --lines, and --srt are mutually exclusive")
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
