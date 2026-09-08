@@ -108,6 +108,73 @@ def segments_from_plain_text(transcript_text: str, whisper_segments: List[Segmen
         new_segments.append(Segment(id=si, start=seg.start, end=seg.end, text=" ".join(words)))
     return new_segments
 
+def segments_from_lines(transcript_text: str, whisper_segments: List[Segment]) -> List[Segment]:
+    """Guarantee exactly one output segment per non-empty input line, with
+    the EXACT original line text (no reconstruction/merging). Whisper's
+    segments are only used to build an approximate word-time map for
+    positioning each line's audio-search window -- align.py's MMS pass
+    then does the real word-level timing inside that window.
+    """
+    import difflib
+
+    lines = [l.strip() for l in transcript_text.split("\n") if l.strip()]
+
+    # Build an approximate per-word timestamp by interpolating linearly
+    # within each whisper segment (whisper gives segment-level start/end only).
+    whisper_all_words = []
+    whisper_word_times = []  # approx (start,end) per word, global timeline
+    for seg in whisper_segments:
+        words = seg.text.split()
+        if not words:
+            continue
+        span = max(seg.end - seg.start, 0.05)
+        step = span / len(words)
+        for i, w in enumerate(words):
+            whisper_all_words.append(w)
+            whisper_word_times.append((seg.start + i * step, seg.start + (i + 1) * step))
+
+    total_duration = whisper_segments[-1].end if whisper_segments else 0.0
+    total_words_all_lines = sum(len(l.split()) for l in lines) or 1
+
+    sm = difflib.SequenceMatcher(a=whisper_all_words, b=None, autojunk=False)
+
+    new_segments: List[Segment] = []
+    cursor_word_idx = 0     # progress marker into whisper_all_words
+    cursor_time = 0.0       # fallback proportional time marker
+    words_seen_so_far = 0
+
+    for line_id, line in enumerate(lines):
+        line_words = line.split()
+        n = len(line_words)
+
+        sm.set_seq2(line_words)
+        matches = sm.get_matching_blocks()
+        # keep only matches at/after our current search position, to move forward monotonically
+        matches = [m for m in matches if m.size > 0 and m.a >= cursor_word_idx - 2]
+
+        if matches:
+            first = matches[0]
+            last = matches[-1]
+            start_ts = whisper_word_times[first.a][0]
+            end_ts = whisper_word_times[last.a + last.size - 1][1]
+            cursor_word_idx = last.a + last.size
+        else:
+            # fallback: proportional position by word-count share of total duration
+            start_ts = cursor_time
+            frac = n / total_words_all_lines
+            end_ts = start_ts + frac * total_duration
+            cursor_time = end_ts
+
+        # generous padding since this window is only a rough anchor —
+        # align.py's own padding_sec adds more on top of this
+        pad = 0.75
+        start_ts = max(0.0, start_ts - pad)
+        end_ts = min(total_duration, end_ts + pad)
+
+        new_segments.append(Segment(id=line_id, start=start_ts, end=end_ts, text=line))
+        words_seen_so_far += n
+
+    return new_segments
 
 if __name__ == "__main__":
     import sys
