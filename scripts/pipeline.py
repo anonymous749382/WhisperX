@@ -112,7 +112,7 @@ def run(args, cfg):
 
     print("[5/5] Writing outputs...")
     generate_json(words, language, duration, report, str(out_dir / "output.json"))
-    generate_srt(words, cfg.get("subtitle", {}), str(out_dir / "output.srt"))
+    generate_srt(words, cfg.get("subtitle", {}), str(out_dir / "output.srt"), preserve_lines=bool(args.lines))
     generate_subtitle_ass(words, cfg.get("subtitle", {}), str(out_dir / "subtitle.ass"))
     generate_karaoke_ass(words, cfg.get("subtitle", {}), str(out_dir / "karaoke.ass"))
     generate_transcript(

@@ -40,7 +40,6 @@ def group_words_into_cues(words: List, cfg: dict) -> List[dict]:
             word_count = len(current) + 1
             if gap > max_gap or dur_if_added > max_duration or word_count > max_words:
                 starts_new = True
-            # sentence-ending punctuation forces a break too
             if current[-1].word.rstrip().endswith((".", "?", "!", "।")):
                 starts_new = True
 
@@ -55,8 +54,35 @@ def group_words_into_cues(words: List, cfg: dict) -> List[dict]:
     return cues
 
 
-def generate_srt(words: List, cfg: dict, output_path: str) -> None:
-    cues = group_words_into_cues(words, cfg)
+def group_words_by_segment(words: List) -> List[dict]:
+    """One cue per original segment_id, in order -- used for --lines mode
+    where the input line structure must be preserved exactly, with no
+    word-count/gap/punctuation-based re-grouping."""
+    cues = []
+    current = []
+    current_seg = None
+
+    def flush():
+        if current:
+            cues.append({
+                "start": current[0].start,
+                "end": current[-1].end,
+                "words": list(current),
+            })
+
+    for w in words:
+        if current and w.segment_id != current_seg:
+            flush()
+            current = []
+        current.append(w)
+        current_seg = w.segment_id
+
+    flush()
+    return cues
+
+
+def generate_srt(words: List, cfg: dict, output_path: str, preserve_lines: bool = False) -> None:
+    cues = group_words_by_segment(words) if preserve_lines else group_words_into_cues(words, cfg)
     lines = []
     for i, cue in enumerate(cues, start=1):
         text = " ".join(w.word for w in cue["words"])

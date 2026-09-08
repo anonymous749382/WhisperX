@@ -22,6 +22,7 @@ class Word:
     start: float
     end: float
     confidence: float
+    segment_id: int = -1
 
 
 def _load_mms():
@@ -47,8 +48,6 @@ _UROMANIZER = None
 
 
 def _get_uromanizer():
-    """uroman's python API has shifted across versions; try the known
-    entry points instead of hard-coding one and breaking on a pip bump."""
     global _UROMANIZER
     if _UROMANIZER is not None:
         return _UROMANIZER
@@ -73,8 +72,6 @@ def _get_uromanizer():
 
 
 def _romanize(words: List[str]) -> List[str]:
-    """Romanize non-Latin script words (Devanagari etc.) via uroman so the
-    MMS CTC model's shared-alphabet dictionary can align them."""
     romanize_fn = _get_uromanizer()
     romanized = []
     for w in words:
@@ -94,9 +91,6 @@ def _normalize_latin(words: List[str]) -> List[str]:
 
 
 def align_segment(waveform: torch.Tensor, sample_rate: int, words: List[str]) -> List[Word]:
-    """Align a list of spoken words against the given waveform slice.
-    Returns word timestamps relative to the START of this waveform slice.
-    """
     if not words:
         return []
 
@@ -113,13 +107,12 @@ def align_segment(waveform: torch.Tensor, sample_rate: int, words: List[str]) ->
         token_spans = aligner(emission[0], tokens)
 
     num_frames = emission.size(1)
-    ratio = waveform.size(-1) / num_frames / _SAMPLE_RATE  # seconds per frame
+    ratio = waveform.size(-1) / num_frames / _SAMPLE_RATE
 
     results: List[Word] = []
     for orig_word, spans in zip(words, token_spans):
         start = spans[0].start * ratio
         end = spans[-1].end * ratio
-        # average per-token score as a confidence proxy
         scores = [s.score for s in spans]
         conf = float(sum(scores) / len(scores)) if scores else 0.0
         results.append(Word(word=orig_word, start=float(start), end=float(end), confidence=conf))
@@ -127,11 +120,8 @@ def align_segment(waveform: torch.Tensor, sample_rate: int, words: List[str]) ->
 
 
 def align_segments(audio_path: str, segments: List, padding_sec: float = 0.35) -> List[Word]:
-    """Align every ASR segment against its (padded) audio slice, then
-    offset word timestamps back to the full-file (global) timeline.
-    """
     full_wave, sr = torchaudio.load(audio_path)
-    full_wave = full_wave.mean(dim=0)  # mono
+    full_wave = full_wave.mean(dim=0)
     duration = full_wave.size(-1) / sr
 
     all_words: List[Word] = []
@@ -150,21 +140,25 @@ def align_segments(audio_path: str, segments: List, padding_sec: float = 0.35) -
         try:
             aligned = align_segment(chunk, sr, words)
         except Exception as e:  # noqa: BLE001
-            # Fallback: evenly distribute across the segment rather than crash the pipeline
+            import traceback
+            print(f"[ALIGN FALLBACK] segment '{seg.text[:40]}' failed: {e}")
+            traceback.print_exc()
             span = max(seg.end - seg.start, 0.05)
-            step = span / len(words)
-            aligned = [
-                Word(word=w, start=seg.start + i * step, end=seg.start + (i + 1) * step, confidence=0.0)
-                for i, w in enumerate(words)
-            ]
-            for w in aligned:
-                w.word = w.word + ""  # already global, skip offset below
+            lengths = [max(len(w), 1) for w in words]
+            total_len = sum(lengths)
+            aligned = []
+            cursor = seg.start
+            for w, L in zip(words, lengths):
+                dur = span * (L / total_len)
+                aligned.append(Word(word=w, start=cursor, end=cursor + dur, confidence=0.0, segment_id=seg.id))
+                cursor += dur
             all_words.extend(aligned)
             continue
 
         for w in aligned:
             w.start += pad_start
             w.end += pad_start
+            w.segment_id = seg.id
         all_words.extend(aligned)
 
     return all_words
