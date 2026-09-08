@@ -181,7 +181,7 @@ jobs:
           input_path="${{ steps.locate.outputs.path }}"
           extra=""
           if [ "$mode" = "transcript" ] && [ -f "input/transcript.txt" ]; then
-            extra="--transcript input/transcript.txt"
+            extra="--lines input/transcript.txt"
           elif [ "$mode" = "srt" ] && [ -f "input/existing.srt" ]; then
             extra="--srt input/existing.srt"
           fi
