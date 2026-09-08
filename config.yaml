@@ -9,6 +9,7 @@ vad_min_silence_ms: 500
 
 # --- Forced alignment (torchaudio MMS) ---
 alignment:
+  min_bitrate_kbps: 64
   segment_padding_sec: 0.35   # audio padding around each ASR segment before aligning
   sample_rate: 16000
 

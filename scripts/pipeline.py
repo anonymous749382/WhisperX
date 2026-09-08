@@ -63,12 +63,42 @@ def parse_srt(path: str):
     return segments
 
 
+def check_audio_quality(input_path: str, min_bitrate_kbps: int = 64) -> None:
+    """Abort early if source audio is too compressed for reliable MMS
+    alignment (e.g. an accidental 16kbps export), instead of burning
+    hours of CI time on garbage timestamps."""
+    import subprocess, json
+    try:
+        out = subprocess.check_output([
+            "ffprobe", "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=bit_rate", "-of", "json", input_path
+        ])
+        info = json.loads(out)
+        bitrate = info.get("streams", [{}])[0].get("bit_rate")
+    except Exception:
+        bitrate = None
+
+    if bitrate is None:
+        print("[WARN] Could not detect audio bitrate — skipping quality check.")
+        return
+
+    kbps = int(bitrate) / 1000
+    print(f"      source audio bitrate: {kbps:.0f}kbps")
+    if kbps < min_bitrate_kbps:
+        raise SystemExit(
+            f"ERROR: source audio bitrate too low for reliable alignment "
+            f"({kbps:.0f}kbps < {min_bitrate_kbps}kbps minimum). "
+            f"Re-export the audio at higher quality and re-run."
+        )
+
+
 def run(args, cfg):
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     wav_path = out_dir / "audio.wav"
     print("[1/5] Extracting audio...")
+    check_audio_quality(args.input, cfg.get("alignment", {}).get("min_bitrate_kbps", 64))
     extract_audio(args.input, str(wav_path), cfg.get("alignment", {}).get("sample_rate", 16000))
     duration = get_duration(str(wav_path))
     print(f"      duration = {duration:.2f}s")
